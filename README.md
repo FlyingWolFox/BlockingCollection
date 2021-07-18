@@ -96,11 +96,14 @@ For example, you could specify a ```QueueContainer<T>``` object for first in, fi
 ```C++
 BlockingCollection<std::string, StackContainer<std::string>> stack(1000);
 ```
+It's also available set collections, with ```SetQueueContainer<T, Set>``` and ```SetStackContainer<T, Set>```, that will have the same behaviour of their non set counterparts, but will not insert duplicates. ```Set``` template parameter is the set type, like ```std::set``` or ```std::unordered_set```.
 Type aliases are also available:
 ```C++
 BlockingQueue<std::string> blocking_queue;
 BlockingStack<std::string> blocking_stack;
 ```
+#### Set collections memory usage
+Set collections have the set container alongside the internal container. To be memory eficient, the internal container has ```std::reference_wrapper``` to the actual elements on the internal container. In the case that the elements are lighter than the ```std::reference_wrapper```, the internal container will have copies of the elements instead.
 ## Priority based Insertion and Removal
 PriorityBlockingCollection offers the same functionality found in BlockingCollection<T, PriorityQueue>.
 But the add/try_add methods add items to the collection based on their priority - (0 is lowest priority).

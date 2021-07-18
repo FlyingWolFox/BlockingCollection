@@ -22,6 +22,7 @@
 #include <thread>
 #include <chrono>
 #include <deque>
+#include <set>
 #include <algorithm>
 
 namespace code_machina {
@@ -490,13 +491,180 @@ namespace code_machina {
                 return true;
             }
         };
+
+        /// @class SetContainer
+        ///
+        /// Represents a first in-first out (FIFO) or a last in-first out
+        /// (LIFO) set collection depending on
+        /// the ContainerType template parameter value.
+        ///
+        /// A set collection is an associative container that contains a
+        /// set of unique objects of type T.
+        /// Can be used with ordered and unordered sets.
+        ///
+        /// Implements the implicitly defined IProducerConsumerCollection<T>
+        /// policy.
+        /// @tparam T The type of items in the Container.
+        /// @tparam ContainerType The type of Container (i.e. Queue or Stack).
+        template<typename T, typename ContainerType,
+        template<typename Key> typename Set, typename ReferenceType>
+        class SetContainer {
+        public:
+            using container_type = std::deque<ReferenceType>;
+            using set_type = Set<T>;
+            using value_type = typename set_type::value_type;
+            using size_type = typename set_type::size_type;
+
+            /// Initializes a new instance of the SetContainer<T> class.
+            SetContainer()
+            : bounded_capacity_(SIZE_MAX)  {
+            }
+
+            /// Sets the max number of elements this container can hold.
+            /// @param bounded_capacity The max number of elements this
+            /// container can hold.
+            void bounded_capacity(size_t bounded_capacity) {
+                bounded_capacity_ = bounded_capacity;
+            }
+
+            /// Gets the max number of elements this container can hold.
+            /// @returns The max number of elements this container can hold.
+            size_t bounded_capacity() {
+                return bounded_capacity_;
+            }
+
+            /// Gets the number of elements contained in the collection.
+            /// @returns The number of elements contained in the collection.
+            size_type size() {
+                return container_.size();
+            }
+
+            /// Attempts to add an element to the collection.
+            /// @param item The element to add to the collection.
+            /// @returns True if the element was added successfully; otherwise,
+            /// false.
+            bool try_add(const value_type& item) {
+                if (container_.size() == bounded_capacity_)
+                    return false;
+                auto result = set_.insert(item);
+                if (!result.second) {
+                    return true;
+                }
+                // this is terrible, but I can't make a deque with const elements
+                // and using std::reference_wrapper on sets is risky.
+                // These elements are virtually constant, no modification should ever took place
+                value_type& set_item = const_cast<value_type&>(*(result.first));
+                container_.push_back(set_item);
+                return true;
+            }
+
+            /// Attempts to add an element to the collection.
+            /// @param item The element to add to the collection.
+            /// @returns True if the element was added successfully; otherwise,
+            /// false.
+            bool try_add(value_type&& item) {
+                if (container_.size() == bounded_capacity_)
+                    return false;
+                auto result = set_.insert(std::forward<value_type>(item));
+                if (!result.second) {
+                    return true;
+                }
+                // this is terrible, but I can't make a deque with const elements
+                // and using std::reference_wrapper on sets is risky.
+                // These elements are virtually constant, no modification should ever took place
+                value_type& set_item = const_cast<value_type&>(*(result.first));
+                container_.push_back(set_item);
+                return true;
+            }
+
+            /// Attempts to remove and return an element from the collection.
+            /// @param [out] item When this method returns, if the element was
+            /// removed and returned successfully, item
+            /// contains the removed element. If no element was available to be
+            /// removed, the value is unspecified.
+            /// @returns True if an element was removed and returned
+            /// successfully; otherwise, false.
+            bool try_take(value_type& item) {
+                if (container_.empty())
+                    return false;
+                return try_take_i(item, is_queue<ContainerType>());
+            }
+
+            /// Attempts to add an element to the collection.
+            /// This new element is constructed in place using args as the
+            /// arguments for its construction.
+            /// @param args Arguments forwarded to construct the new element.
+            template <typename... Args> bool try_emplace(Args&&... args) {
+                if (container_.size() == bounded_capacity_)
+                    return false;
+                return try_emplace_i<Args...>(std::forward<Args>(args)...,
+                is_queue<ContainerType>());
+            }
+
+        private:
+            size_t bounded_capacity_;
+            container_type container_;
+            set_type set_;
+
+            bool try_take_i(value_type& item, std::false_type) {
+                item = container_.back();
+                container_.pop_back();
+                set_.erase(item);
+                return true;
+            }
+
+            bool try_take_i(value_type& item, std::true_type) {
+                item = container_.front();
+                container_.pop_front();
+                set_.erase(item);
+                return true;
+            }
+
+            template <typename... Args> bool try_emplace_i(Args&&... args,
+            std::false_type) {
+                auto result = set_.emplace(std::forward<Args>(args)...);
+                if (!result.second) {
+                    return true;
+                }
+                // this is terrible, but I can't make a deque with const elements
+                // and using std::reference_wrapper on sets is risky.
+                // These elements are virtually constant, no modification should ever took place
+                value_type& set_item = const_cast<value_type&>(*(result.first));
+                container_.push_front(set_item);
+                return true;
+            }
+
+            template <typename... Args> bool try_emplace_i(Args&&... args,
+            std::true_type) {
+                auto result = set_.emplace(std::forward<Args>(args)...);
+                if (!result.second) {
+                    return true;
+                }
+                // this is terrible, but I can't make a deque with const elements
+                // and using std::reference_wrapper on sets is risky.
+                // These elements are virtually constant, no modification should ever took place
+                value_type& set_item = const_cast<value_type&>(*(result.first));
+                container_.push_back(set_item);
+                return true;
+            }
+        };
     } // namespace detail
 
     template<typename T>
     using QueueContainer = detail::Container<T, detail::QueueType>;
 
+    template<typename T, template<typename Key> typename Set = std::set>
+    using SetQueueContainer = detail::SetContainer<T, detail::QueueType, Set,
+    // choose T as set value type if it's reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type>;
+
     template<typename T>
     using StackContainer = detail::Container<T, detail::StackType>;
+
+    template<typename T, template<typename Key> typename Set = std::set> 
+    using SetStackContainer = detail::SetContainer<T, detail::StackType, Set,
+    // choose T as set value type if it's reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type>;
 
     using StdConditionVariableGenerator = ConditionVariableGenerator<
     ThreadContainer<std::thread::id>, NotFullSignalStrategy<16>,
