@@ -96,14 +96,30 @@ For example, you could specify a ```QueueContainer<T>``` object for first in, fi
 ```C++
 BlockingCollection<std::string, StackContainer<std::string>> stack(1000);
 ```
-It's also available set collections, with ```SetQueueContainer<T, Set>``` and ```SetStackContainer<T, Set>```, that will have the same behaviour of their non set counterparts, but will not insert duplicates. ```Set``` template parameter is the set type, like ```std::set``` or ```std::unordered_set```.
 Type aliases are also available:
 ```C++
 BlockingQueue<std::string> blocking_queue;
 BlockingStack<std::string> blocking_stack;
 ```
-#### Set collections memory usage
-Set collections have the set container alongside the internal container. To be memory eficient, the internal container has ```std::reference_wrapper``` to the actual elements on the internal container. In the case that the elements are lighter than the ```std::reference_wrapper```, the internal container will have copies of the elements instead.
+### Other colections
+In addition to the common collection, there are two more collection types: set collections and map collections:
+#### Set Collections
+The set collections ```SetQueueContainer<T, Set>``` and ```SetStackContainer<T, Set>```, have the same behaviour of the non set counterparts, but won't insert duplicate elements. The ```Set``` template parameter is the set type, like ```std::set``` or ```std::unordered_set```
+#### Map Collections
+Map collections are like set collections, but allows key value pairs with unique keys. Since values are not unique, the map collections have three behaviors when there's an attempt to add a key value pair whose key is already on the container:
+- Additive: the new value is "added" to the value on the map. This "adding" is made with functors passed as template parameter
+- Destructive: the original value is overwritten with the new value
+- Conservative: Does the opposite of Destructive, discarding the new value
+
+Inserting the internal order. So, for example, if, with Additive or Destructive behaviors, adding a element with a key already present on the map that is the next to be taken from the container (being by dequeing or unstacking), the next key value pair will be the same
+The containers are: ```AdditiveMapQueueContainer<T, Value, CopyAddFunctor, MoveAddFunctor, Map>```, ```DestructiveMapQueueContainer<T, Value, Map>```, ```ConservativeMapQueueContainer<T, Value, Map>```, ```AdditiveMapStackContainer<T, Value, CopyAddFunctor, MoveAddFunctor, Map>```, ```DestructiveMapStackContainer<T, Value, Map>```, and ```ConservativeMapStackContainer<T, Value, Map>```, with ```T``` being the key type, ```Value``` the value type and ```Map``` the map type, like ```std::map``` or ```std::unordered_map```.
+The functors for the Additive behavior have the ```operator()``` in the following signature:
+```void operator()(T& value, const Value& new_value)``` for the ```CopyAddFunctor``` and;
+```void operator()(T& value, Value&& new_value)``` for the ```MoveAddFunctor``` 
+being value the value from the already present key value pair and new_value the value from the key value pair to be inserted
+When using the map container the ```T``` template parameter of blocking collection must be ```std::pair<T, Value>```
+#### Memory usage of these collections
+The set and map collections have alongside them the internal container, used for the ordering. To be memory eficient, the internal container has ```std::reference_wrapper``` to the actual elements on the internal container. In the case that the elements are lighter than the ```std::reference_wrapper```, the internal container will have copies of the elements instead.
 ## Priority based Insertion and Removal
 PriorityBlockingCollection offers the same functionality found in BlockingCollection<T, PriorityQueue>.
 But the add/try_add methods add items to the collection based on their priority - (0 is lowest priority).

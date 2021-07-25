@@ -13,6 +13,9 @@
 /// You should have received a copy of the GNU General Public License
 /// along with this program.If not, see <https://www.gnu.org/licenses/>.
 
+/// The changes made by FlyingWolFox are under the same terms
+/// of the original code
+
 #ifndef BlockingCollection_h
 #define BlockingCollection_h
 
@@ -23,6 +26,7 @@
 #include <chrono>
 #include <deque>
 #include <set>
+#include <map>
 #include <algorithm>
 
 namespace code_machina {
@@ -370,6 +374,23 @@ namespace code_machina {
         struct QueueType {};
         struct StackType {};
 
+        template <typename CopyAddFunctor, typename MoveAddFunctor>
+        struct AdditiveMap {
+            template <typename T, typename U>
+            void operator()(T& value, const U& new_value) const
+            {
+                CopyAddFunctor{}(value, new_value);
+            }
+
+            template <typename T, typename U>
+            void operator()(T& value, U&& new_value) const
+            {
+                MoveAddFunctor{}(value, std::forward<U>(new_value));
+            }
+        };
+        struct DestructiveMap {};
+        struct ConservativeMap {};
+
         template< typename T >
         struct is_queue : std::false_type { };
 
@@ -506,6 +527,8 @@ namespace code_machina {
         /// policy.
         /// @tparam T The type of items in the Container.
         /// @tparam ContainerType The type of Container (i.e. Queue or Stack).
+        /// @tparam Set The type of Set Container.
+        /// @tparam ReferenceType The type that references T (can be T or std::reference_wrapper<T>).
         template<typename T, typename ContainerType,
         template<typename Key> typename Set, typename ReferenceType>
         class SetContainer {
@@ -551,7 +574,7 @@ namespace code_machina {
                     return true;
                 }
                 // this is terrible, but I can't make a deque with const elements
-                // and using std::reference_wrapper on sets is risky.
+                // and using std::reference_wrapper on sets is terrible.
                 // These elements are virtually constant, no modification should ever took place
                 value_type& set_item = const_cast<value_type&>(*(result.first));
                 container_.push_back(set_item);
@@ -570,7 +593,7 @@ namespace code_machina {
                     return true;
                 }
                 // this is terrible, but I can't make a deque with const elements
-                // and using std::reference_wrapper on sets is risky.
+                // and using std::reference_wrapper on sets is terrible.
                 // These elements are virtually constant, no modification should ever took place
                 value_type& set_item = const_cast<value_type&>(*(result.first));
                 container_.push_back(set_item);
@@ -627,7 +650,7 @@ namespace code_machina {
                     return true;
                 }
                 // this is terrible, but I can't make a deque with const elements
-                // and using std::reference_wrapper on sets is risky.
+                // and using std::reference_wrapper on sets is terrible.
                 // These elements are virtually constant, no modification should ever took place
                 value_type& set_item = const_cast<value_type&>(*(result.first));
                 container_.push_front(set_item);
@@ -641,10 +664,310 @@ namespace code_machina {
                     return true;
                 }
                 // this is terrible, but I can't make a deque with const elements
-                // and using std::reference_wrapper on sets is risky.
+                // and using std::reference_wrapper on sets is terrible.
                 // These elements are virtually constant, no modification should ever took place
                 value_type& set_item = const_cast<value_type&>(*(result.first));
                 container_.push_back(set_item);
+                return true;
+            }
+        };
+
+        /// @class MapContainer
+        ///
+        /// Represents a first in-first out (FIFO) or a last in-first out
+        /// (LIFO) map collection depending on the ContainerType template
+        /// parameter value.
+        ///
+        /// A map collection is a associative container that contains
+        /// key-value pairs with unique keys.
+        /// Can be used with ordered and unordered maps.
+        ///
+        /// Implements the implicitly defined IProducerConsumerCollection<T>
+        /// policy.
+        /// @tparam T The type of keys in the Container.
+        /// @tparam Value The type of values for the key-value pairs in the Container.
+        /// @tparam ContainerType The type of Container (i.e. Queue or Stack).
+        /// @tparam Map The type of Map Container.
+        /// @tparam ReferenceType The type that references T (can be T or std::reference_wrapper<T>).
+        template<typename T, typename Value, typename ContainerType,
+        template<typename Key, typename U> typename Map, typename ReferenceType,
+        typename MapBehavior>
+        class MapContainer {
+        public:
+            using container_type = std::deque<ReferenceType>;
+            using map_type = Map<T, Value>;
+            using mapped_type = typename map_type::mapped_type;
+            // not using map_type::value_type because of problems with const
+            using value_type = std::pair<T, Value>;
+            // not using map_type::key_type because of problems with const
+            using key_type = T;
+            using size_type = typename map_type::size_type;
+
+            /// Initializes a new instance of the MapContainer<T> class.
+            MapContainer()
+            : bounded_capacity_(SIZE_MAX)  {
+            }
+
+            /// Sets the max number of elements this container can hold.
+            /// @param bounded_capacity The max number of elements this
+            /// container can hold.
+            void bounded_capacity(size_t bounded_capacity) {
+                bounded_capacity_ = bounded_capacity;
+            }
+
+            /// Gets the max number of elements this container can hold.
+            /// @returns The max number of elements this container can hold.
+            size_t bounded_capacity() {
+                return bounded_capacity_;
+            }
+
+            /// Gets the number of elements contained in the collection.
+            /// @returns The number of elements contained in the collection.
+            size_type size() {
+                return container_.size();
+            }
+
+            /// Attempts to add an element to the collection.
+            /// @param item The element to add to the collection.
+            /// @returns True if the element was added successfully; otherwise,
+            /// false.
+            bool try_add(const value_type& item) {
+                if (container_.size() == bounded_capacity_)
+                    return false;
+                return try_add_i(item, MapBehavior{});
+            }
+
+            /// Attempts to add an element to the collection.
+            /// @param item The element to add to the collection.
+            /// @returns True if the element was added successfully; otherwise,
+            /// false.
+            bool try_add(value_type&& item) {
+                if (container_.size() == bounded_capacity_)
+                    return false;
+                return try_add_i(item, MapBehavior{});
+            }
+
+            /// Attempts to remove and return an element from the collection.
+            /// @param [out] item When this method returns, if the element was
+            /// removed and returned successfully, item
+            /// contains the removed element. If no element was available to be
+            /// removed, the value is unspecified.
+            /// @returns True if an element was removed and returned
+            /// successfully; otherwise, false.
+            bool try_take(value_type& item) {
+                if (container_.empty())
+                    return false;
+                return try_take_i(item, is_queue<ContainerType>());
+            }
+
+            /// Attempts to add an element to the collection.
+            /// This new element is constructed in place using args as the
+            /// arguments for its construction.
+            /// @param args Arguments forwarded to construct the new element.
+            template <typename... Args> bool try_emplace(Args&&... args) {
+                if (container_.size() == bounded_capacity_)
+                    return false;
+                return try_emplace_i<Args...>(std::forward<Args>(args)...,
+                MapBehavior{}, is_queue<ContainerType>());
+            }
+
+        private:
+            size_t bounded_capacity_;
+            container_type container_;
+            map_type map_;
+
+            template <typename CopyAddFunction, typename MoveAddFunction>
+            bool try_add_i(const value_type& item, AdditiveMap<CopyAddFunction, MoveAddFunction> behavior)
+            {
+                auto [it, success] = map_.insert(item);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                else {
+                    auto& [key, value] = item;
+                    behavior(map_[key], value);
+                }
+                return true;
+            }
+
+            bool try_add_i(const value_type& item, DestructiveMap)
+            {
+                auto& [key, value] = item;
+                auto [it, success] = map_.insert_or_assign(key, value);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                return true;
+            }
+
+            bool try_add_i(const value_type& item, ConservativeMap)
+            {
+                auto [it, success] = map_.insert(item);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                return true;
+            }
+
+            template <typename CopyAddFunction, typename MoveAddFunction>
+            bool try_add_i(value_type&& item, AdditiveMap<CopyAddFunction, MoveAddFunction> behavior)
+            {
+                auto [it, success] = map_.insert(item);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                else {
+                    auto&& [key, value] = item;
+                    behavior(map_[key], std::forward<mapped_type>(value));
+                }
+                return true;
+            }
+
+            bool try_add_i(value_type&& item, DestructiveMap)
+            {
+                auto&& [key, value] = item;
+                auto [it, success] = map_.insert_or_assign(key, value);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                return true;
+            }
+
+            bool try_add_i(value_type&& item, ConservativeMap&)
+            {
+                auto [it, success] = map_.insert(item);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                return true;
+            }
+
+            bool try_take_i(value_type& item, std::false_type) {
+                auto key = container_.back();
+                item = *(map_.find(key));
+                container_.pop_back();
+                map_.erase(key);
+                return true;
+            }
+
+            bool try_take_i(value_type& item, std::true_type) {
+                key_type key = container_.front();
+                item = std::make_pair(key, map_[key]);
+                container_.pop_front();
+                map_.erase(key);
+                return true;
+            }
+
+            template <typename CopyAddFunction, typename MoveAddFunction, typename... Args>
+            bool try_emplace_i(Args&&... args, AdditiveMap<CopyAddFunction, MoveAddFunction> behavior , std::false_type)
+            {
+                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_front(const_cast<key_type&>(it->first));
+                }
+                else {
+                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    behavior(map_[key], std::forward<mapped_type>(value));
+                }
+                return true;
+            }
+
+            template <typename... Args>
+            bool try_emplace_i(Args&&... args, DestructiveMap, std::false_type)
+            {
+                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_front(const_cast<key_type&>(it->first));
+                }
+                else {
+                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    map_[key] = value;
+                }
+                return true;
+            }
+
+            template <typename... Args>
+            bool try_emplace_i(Args&&... args, ConservativeMap, std::false_type)
+            {
+                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_front(const_cast<key_type&>(it->first));
+                }
+                return true;
+            }
+
+            template <typename... Args, typename CopyAddFunction,
+            typename MoveAddFunction>
+            bool try_emplace_i(Args&&... args, AdditiveMap<CopyAddFunction, MoveAddFunction> behavior, std::true_type)
+            {
+                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                else {
+                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    behavior(map_[key], std::forward<mapped_type>(value));
+                }
+                return true;
+            }
+
+            template <typename... Args>
+            bool try_emplace_i(Args&&... args, DestructiveMap, std::true_type)
+            {
+                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
+                else {
+                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    map_[key] = value;
+                }
+                return true;
+            }
+
+            template <typename... Args>
+            bool try_emplace_i(Args&&... args, ConservativeMap ,std::true_type)
+            {
+                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                if (success) {
+                    // this is terrible, but I can't make a deque with const elements
+                    // and using std::reference_wrapper as map keys is terrible.
+                    // These elements are virtually constant, no modification should ever took place
+                    container_.push_back(const_cast<key_type&>(it->first));
+                }
                 return true;
             }
         };
@@ -655,16 +978,54 @@ namespace code_machina {
 
     template<typename T, template<typename Key> typename Set = std::set>
     using SetQueueContainer = detail::SetContainer<T, detail::QueueType, Set,
-    // choose T as set value type if it's reference_wrapper uses more memory
+    // choose T as set value type if its reference_wrapper uses more memory
     typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type>;
+
+    template <typename T, typename Value, typename CopyAddFunctor, typename MoveAddFunctor,
+    template<typename Key, typename U> typename Map = std::map>
+    using AdditiveMapQueueContainer = detail::MapContainer<T, Value, detail::QueueType, Map,
+    // choose T as set value type if its reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type,
+    detail::AdditiveMap<CopyAddFunctor, MoveAddFunctor>>;
+
+    template <typename T, typename Value, template<typename Key, typename U> typename Map = std::map>
+    using DestructiveMapQueueContainer = detail::MapContainer<T, Value, detail::QueueType, Map,
+    // choose T as set value type if its reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type,
+    detail::DestructiveMap>;
+
+    template <typename T, typename Value, template<typename Key, typename U> typename Map = std::map>
+    using ConservativeMapQueueContainer = detail::MapContainer<T, Value, detail::QueueType, Map,
+    // choose T as set value type if its reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type,
+    detail::ConservativeMap>;
 
     template<typename T>
     using StackContainer = detail::Container<T, detail::StackType>;
 
     template<typename T, template<typename Key> typename Set = std::set> 
     using SetStackContainer = detail::SetContainer<T, detail::StackType, Set,
-    // choose T as set value type if it's reference_wrapper uses more memory
+    // choose T as set value type if its reference_wrapper uses more memory
     typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type>;
+
+    template <typename T, typename Value, typename CopyAddFunctor, typename MoveAddFunctor,
+    template<typename Key, typename U> typename Map = std::map>
+    using AdditiveMapStackContainer = detail::MapContainer<T, Value, detail::StackType, Map,
+    // choose T as set value type if its reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type,
+    detail::AdditiveMap<CopyAddFunctor, MoveAddFunctor>>;
+
+    template <typename T, typename Value, template<typename Key, typename U> typename Map = std::map>
+    using DestructiveMapStackContainer = detail::MapContainer<T, Value, detail::StackType, Map,
+    // choose T as set value type if its reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type,
+    detail::DestructiveMap>;
+
+    template <typename T, typename Value, template<typename Key, typename U> typename Map = std::map>
+    using ConservativeMapStackContainer = detail::MapContainer<T, Value, detail::StackType, Map,
+    // choose T as set value type if its reference_wrapper uses more memory
+    typename std::conditional<(sizeof(T) > sizeof(std::reference_wrapper<T>)), std::reference_wrapper<T>, T>::type,
+    detail::ConservativeMap>;
 
     using StdConditionVariableGenerator = ConditionVariableGenerator<
     ThreadContainer<std::thread::id>, NotFullSignalStrategy<16>,
