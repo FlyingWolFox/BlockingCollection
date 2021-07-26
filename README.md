@@ -188,6 +188,14 @@ BlockingCollection currently supports three containers:
 - QueueContainer
 - StackContainer
 - PriorityContainer
+- SetQueueContainer
+- SetStackContainer
+- AdditiveMapQueueContainer
+- DestructiveMapQueueContainer
+- ConservativeMapQueueContainer
+- AdditiveMapStackContainer
+- DestructiveMapStackContainer
+- ConservativeMapStackContainer
 
 ## Performance Optimizations
 BlockingCollection can behave like most condition variable based collections. That is, it will by default issue a signal each time a element is added or taken from its underlying Container. But this approach leads to poor application scaling and performance. 
