@@ -879,15 +879,16 @@ namespace code_machina {
             template <typename CopyAddFunction, typename MoveAddFunction, typename... Args>
             bool try_emplace_i(Args&&... args, AdditiveMap<CopyAddFunction, MoveAddFunction> behavior , std::false_type)
             {
-                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                auto new_val = value_type(std::forward<Args>(args)...);
+                auto [it, success] = map_.insert(new_val);
                 if (success) {
                     // this is terrible, but I can't make a deque with const elements
                     // and using std::reference_wrapper as map keys is terrible.
                     // These elements are virtually constant, no modification should ever took place
-                    container_.push_front(const_cast<key_type&>(it->first));
+                    container_.push_back(const_cast<key_type&>(it->first));
                 }
                 else {
-                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    auto& [key, value] = new_val;
                     behavior(map_[key], std::forward<mapped_type>(value));
                 }
                 return true;
@@ -896,7 +897,8 @@ namespace code_machina {
             template <typename... Args>
             bool try_emplace_i(Args&&... args, DestructiveMap, std::false_type)
             {
-                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                auto new_val = value_type(std::forward<Args>(args)...);
+                auto [it, success] = map_.insert(new_val);
                 if (success) {
                     // this is terrible, but I can't make a deque with const elements
                     // and using std::reference_wrapper as map keys is terrible.
@@ -904,7 +906,7 @@ namespace code_machina {
                     container_.push_front(const_cast<key_type&>(it->first));
                 }
                 else {
-                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    auto& [key, value] = new_val;
                     map_[key] = value;
                 }
                 return true;
@@ -927,7 +929,8 @@ namespace code_machina {
             typename MoveAddFunction>
             bool try_emplace_i(Args&&... args, AdditiveMap<CopyAddFunction, MoveAddFunction> behavior, std::true_type)
             {
-                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                auto new_val = value_type(std::forward<Args>(args)...);
+                auto [it, success] = map_.insert(new_val);
                 if (success) {
                     // this is terrible, but I can't make a deque with const elements
                     // and using std::reference_wrapper as map keys is terrible.
@@ -935,7 +938,7 @@ namespace code_machina {
                     container_.push_back(const_cast<key_type&>(it->first));
                 }
                 else {
-                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    auto& [key, value] = new_val;
                     behavior(map_[key], std::forward<mapped_type>(value));
                 }
                 return true;
@@ -944,7 +947,8 @@ namespace code_machina {
             template <typename... Args>
             bool try_emplace_i(Args&&... args, DestructiveMap, std::true_type)
             {
-                auto [it, success] = map_.emplace(std::forward<Args>(args)...);
+                auto new_val = value_type(std::forward<Args>(args)...);
+                auto [it, success] = map_.insert(new_val);
                 if (success) {
                     // this is terrible, but I can't make a deque with const elements
                     // and using std::reference_wrapper as map keys is terrible.
@@ -952,7 +956,7 @@ namespace code_machina {
                     container_.push_back(const_cast<key_type&>(it->first));
                 }
                 else {
-                    auto&& [key, value] = value_type(std::forward<Args>(args)...);
+                    auto& [key, value] = new_val;
                     map_[key] = value;
                 }
                 return true;
